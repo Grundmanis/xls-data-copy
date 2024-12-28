@@ -5,12 +5,15 @@
   "main": "index.js",
   "scripts": {
     "build:dev": "tsc --watch --preserveWatchOutput",
-    "start:dev": "nodemon dist/index.js & webpack -w"
+    "start:dev": "nodemon dist/index.js & webpack -w",
+    "build:prod": "tsc --build",
+    "start:prod": "node dist/index.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "multer": "^1.4.5-lts.1",
     "react": "^19.0.0",

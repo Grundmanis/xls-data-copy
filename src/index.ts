@@ -28,7 +28,6 @@ const upload = multer({ storage });
 app.post('/upload', upload.fields([{ name: 'from' }, { name: 'to' }]), (req, res) => {
   const { from, to } = req.files as { from: Express.Multer.File[], to: Express.Multer.File[] };
   const {targetTab} = req.body;
-  console.log({targetTab});
 
   if (!from || !to) {
     return res.status(400).send('Both files are required.');
@@ -56,30 +55,17 @@ app.post('/upload', upload.fields([{ name: 'from' }, { name: 'to' }]), (req, res
     return;
   }
 
-  // Check for data validation rules (dropdowns)
-// const dataValidations = targetSheet["!dataValidation"];
-// if (dataValidations) {
-//   dataValidations.forEach((rule) => {
-//     console.log("Dropdown Range:", rule.sqref); // Cell range for the dropdown
-//     console.log("Formula:", rule.formula1);    // Formula or list defining the dropdown values
-//   });
-// } else {
-//   console.log("No dropdowns found.");
-// }
-
   // Get the 2nd row from the target sheet (column mapping)
   const targetRow2 = xlsx.utils.sheet_to_json(targetSheet, { header: 1 })[1]; // Row 2 (index 1)
   
   // Get the data from the source sheet starting from row 3 (index 2)
   const sourceData = xlsx.utils.sheet_to_json(sourceSheet, { header: 1, range: 2 }); // Skip the first 2 rows
-//   console.log("sourceData",sourceData);
   
   // Start writing data from row 6 in the target sheet (index 5)
   const startRow = 5; // Target data starts from row 6 (index 5)
   
-// Create an array to store all updates for the target sheet
-const updates: { [key: string]: any } = {}; // Key: cell address, Value: cell value
-
+  // Create an array to store all updates for the target sheet
+  const updates: { [key: string]: any } = {}; // Key: cell address, Value: cell value
 
   const packageTypes = [
     "AE - Aerosol",
@@ -459,34 +445,38 @@ const updates: { [key: string]: any } = {}; // Key: cell address, Value: cell va
     "VN - Vehicle",
     "VI - Vial",
     "WB - Wickerbottle",
-]
+  ]
 
   // Loop through each column in the target sheet's second row (targetRow2) to map the columns
   // @ts-expect-error
   
 // Loop through each column in the target sheet's second row (targetRow2) to map the columns
-targetRow2.forEach((columnMapping, colIndex) => {
+  targetRow2.forEach((columnMapping, colIndex) => {
     if (columnMapping) {
-      const columns = columnMapping.split('/'); // Handle cases like "A/B"
+      const columns = columnMapping.includes('/') ? columnMapping.split('/') : columnMapping.match(/.{1}/g); // Handle cases like "A/B" and "AB"
   
       // Iterate over each row in the source data
       sourceData.forEach((sourceRow, rowIndex) => {
+        // @ts-ignore
         const sourceValues = columns.map((col) => {
           const colLetter = col.trim();
           const sourceColIndex = xlsx.utils.decode_col(colLetter); // Get column index from letter
+          // @ts-ignore
           return sourceRow[sourceColIndex]; // Extract value for the current row
         });
+
+        console.log({sourceValues});
   
         if (sourceValues && sourceValues.length > 0) {
+          // @ts-ignore
           sourceValues.forEach((value, valueIndex) => {
-            let finalValue = value;
+            let finalValue = sourceValues.length > 1 ? sourceValues.join(' / ') : sourceValues[0];
   
             // Check if the value starts with any element from the array
             packageTypes.forEach((packageType) => {
-            if (value && packageType.startsWith(value)) {
-                console.log('res packageType', packageType);
-                finalValue = packageType; // Replace with the matching full value
-            }
+              if (value && packageType.startsWith(value)) {
+                  finalValue = packageType; // Replace with the matching full value
+              }
             });
   
             const targetCellAddress = xlsx.utils.encode_cell({
@@ -508,31 +498,37 @@ targetRow2.forEach((columnMapping, colIndex) => {
     }
   });
 
-//   console.log("updates",updates);
+  console.log({updates});
 
+  // Apply all updates to the target sheet in one go
+  Object.keys(updates).forEach((cell) => {
+      targetSheet[cell] = updates[cell]; // Apply each update to the target sheet
+    });
 
-// Apply all updates to the target sheet in one go
-Object.keys(updates).forEach((cell) => {
-    targetSheet[cell] = updates[cell]; // Apply each update to the target sheet
-  });
-
-// console.log("targetSheet", targetSheet);
-const currentRef = targetSheet['!ref'];
-const newRef = 'A1:Y50'; // Dynamically determine based on your needs
-if (currentRef !== newRef) {
-    targetSheet['!ref'] = newRef;
-}
+  // console.log("targetSheet", targetSheet);
+  const currentRef = targetSheet['!ref'];
+  const newRef = 'A1:Y50'; // Dynamically determine based on your needs
+  if (currentRef !== newRef) {
+      targetSheet['!ref'] = newRef;
+  }
 
   // Save the updated target file
   const outputFile = path.join('uploads', 'updated_' + to[0].filename);
   xlsx.writeFile(workbook2, outputFile);
 
-//   console.log("targetSheet", targetSheet);
-  res.send({ message: 'Files uploaded and content copied successfully.' });
+  // Send the file back for download
+  res.download(outputFile, 'updated_' + to[0].filename, (err) => {
+    if (err) {
+      console.error('Error sending file:', err);
+      return res.status(500).send('Error sending file');
+    }
+    console.log('File sent successfully');
+  });
 });
 
 app.get("/", (req: Request, res: Response, next: NextFunction): void => {
   try {
+    console.log("index");
     res.send("index.html");
   } catch (error) {
     next(error);
