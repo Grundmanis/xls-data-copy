@@ -2,7 +2,8 @@ import express, { Request, Response, NextFunction } from "express";
 import path from "path";
 import fs from 'fs';
 import multer from 'multer';
-import xlsx, { WorkBook, WorkSheet } from 'xlsx';
+import ExcelJS from 'exceljs';
+import XLSX from 'xlsx';
 
 const app = express();
 
@@ -22,7 +23,6 @@ const storage = multer.diskStorage({
   },
 });
 const upload = multer({ storage });
-
 
 const packageTypes = [
   "AE - Aerosol",
@@ -404,32 +404,52 @@ const packageTypes = [
   "WB - Wickerbottle",
 ]
 
+const convertXlsToXlsx = (xlsFilePath: string): string => {
+  console.log("starting to convert .xls to .xlsx");
+  const workbook = XLSX.readFile(xlsFilePath);
+  const outputFilePath = xlsFilePath.replace(/\.xls$/, '.xlsx');
+  XLSX.writeFile(workbook, outputFilePath, { bookType: 'xlsx' });
+  console.log("finished converting .xls to .xlsx and saved to", outputFilePath);
+  return outputFilePath;
+};
 
 // Endpoint to upload two xlsx files
   // @ts-ignore
-app.post('/upload', upload.fields([{ name: 'from' }, { name: 'to' }]), (req, res) => {
+app.post('/upload', upload.fields([{ name: 'from' }, { name: 'to' }]), async (req, res) => {
   const { from, to } = req.files as { from: Express.Multer.File[], to: Express.Multer.File[] };
 
   if (!from || !to) {
     return res.status(400).send('Both files are required.');
   }
 
-  // Read the first file
-  const workbook1 = xlsx.readFile(from[0].path);
-  const sourceSheet = workbook1.Sheets[workbook1.SheetNames[0]]; // Assuming the first sheet
+  // Read the first file (source)
+  const sourceWorkbook = new ExcelJS.Workbook();
+  const convertedFrom = convertXlsToXlsx(from[0].path);
+  console.log("reading the sourec file...");
+  await sourceWorkbook.xlsx.readFile(convertedFrom);
+  console.log("finished reading the source file");
+  const sourceSheet = sourceWorkbook.worksheets[0]; // Assuming the first sheet
 
-  // Read the second file
-  const workbook2 = xlsx.readFile(to[0].path);
+  // Read the second file (target)
+  const targetWorkbook = new ExcelJS.Workbook();
+  console.log("reading the target file...");
+  await targetWorkbook.xlsx.readFile(to[0].path);
+  console.log("finished reading the target file");
 
-  putData("Dangerous_Cargo", workbook2, sourceSheet, res, 5, 1);
-  putData("Cargo", workbook2, sourceSheet, res, 5, 1);
-  putData("Cargo_partners", workbook2, sourceSheet, res, 6, 2);
+  console.log("starting to put data...");
+  console.log("to be put in Dangerous_Cargo...");
+  await putData('Dangerous_Cargo', targetWorkbook, sourceSheet, res, 5, 2);
+  console.log("to be put in Dangerous_Cargo...");
+  await putData('Cargo', targetWorkbook, sourceSheet, res, 5, 2);
+  console.log("to be put in Dangerous_Cargo...");
+  await putData('Cargo_partners', targetWorkbook, sourceSheet, res, 6, 3);
 
   // Save the updated target file
+  console.log("writing the updated target file...");
   const outputFile = path.join('uploads', 'updated_' + to[0].filename);
-  xlsx.writeFile(workbook2, outputFile);
+  await targetWorkbook.xlsx.writeFile(outputFile);
 
-  // Send the file back for download
+  console.log("dowloading...");
   res.download(outputFile, 'updated_' + to[0].filename, (err) => {
     if (err) {
       console.error('Error sending file:', err);
@@ -439,102 +459,58 @@ app.post('/upload', upload.fields([{ name: 'from' }, { name: 'to' }]), (req, res
   });
 });
 
-const putData = (targetTab: string, workbook2: WorkBook, sourceSheet: WorkSheet, res: Response, startRow: number, targetRow: number) => {
-  // Create an array to store all updates for the target sheet
-  const updates: { [key: string]: any } = {}; // Key: cell address, Value: cell value
-  const targetSheetIndex = workbook2.SheetNames.indexOf(targetTab);
-  if (targetSheetIndex === -1) {
-    return res.status(400).send('Target tab not found.');
-  }
-
-  const targetSheet = workbook2.Sheets[workbook2.SheetNames[targetSheetIndex]]; // Assuming the first sheet
-  if (!targetSheet) {
-    console.error('Target sheet not found');
-    return;
-  }
-
-  // Get the 2nd row from the target sheet (column mapping)
-  const targetRow2 = xlsx.utils.sheet_to_json(targetSheet, { header: 1 })[targetRow]; // Row 2 (index 1)
-  
-  // Get the data from the source sheet starting from row 3 (index 2)
-  const sourceData = xlsx.utils.sheet_to_json(sourceSheet, { header: 1, range: 2 }); // Skip the first 2 rows
-
-  // Loop through each column in the target sheet's second row (targetRow2) to map the columns
-  // @ts-expect-error
-  
-// Loop through each column in the target sheet's second row (targetRow2) to map the columns
-  targetRow2.forEach((columnMapping, colIndex) => {
-    if (columnMapping) {
-      console.log("columnMapping",columnMapping);
-      const includesAmpersant = columnMapping.includes('&');
-      const columns = columnMapping.includes('/') || columnMapping.includes('&') 
-      ? columnMapping.replace(/[\/&\s]/g, '').split('') 
-      : columnMapping.length > 2 
-        ? columnMapping.split('') 
-        : columnMapping.match(/.{1}/g); // Handle cases like "A/B", "AO & AQ", "AO&AQ", and "AB"
-
-    console.log("columns", columns);
-  
-      // Iterate over each row in the source data
-      sourceData.forEach((sourceRow, rowIndex) => {
-        // @ts-ignore
-        const sourceValues = columns.map((col) => {
-          const colLetter = col.trim();
-          const sourceColIndex = xlsx.utils.decode_col(colLetter); // Get column index from letter
-          // @ts-ignore
-          return sourceRow[sourceColIndex]; // Extract value for the current row
-        });
-
-        console.log("sourceValues",sourceValues);
-
-        // if (sourceValues && sourceValues.length > 0) {
-          // @ts-ignore
-          // sourceValues.forEach((value, valueIndex) => {
-            // if (!value) {
-            //   return; // Skip empty values
-            // }
-            let finalValue = sourceValues.length > 1 ? sourceValues.join(' ') : sourceValues[0];
-  
-            // Check if the value starts with any element from the array
-            packageTypes.forEach((packageType) => {
-              if (finalValue && packageType.startsWith(finalValue)) {
-                  finalValue = packageType; // Replace with the matching full value
-              }
-            });
-            console.log("finalValue", finalValue);
-  
-            const targetCellAddress = xlsx.utils.encode_cell({
-              r: startRow + rowIndex,
-              c: colIndex,
-            });
-
-            // Get the existing cell object to preserve styles
-            const existingCell = targetSheet[targetCellAddress] || {};
-  
-            // Preserve the style and update the value
-            updates[targetCellAddress] = {
-              ...existingCell, // Preserve the existing cell properties (styles, etc.)
-              v: finalValue, // Set the mapped or original value
-            };
-          // });
-        // }
-      });
+const putData = async (targetTab: string, 
+  workbook: ExcelJS.Workbook,
+  sourceSheet: ExcelJS.Worksheet,
+  res: Response,
+  startRow: number,
+  targetRow: number) => {
+    const targetSheet = workbook.getWorksheet(targetTab);
+    if (!targetSheet) {
+      return res.status(400).send(`Target tab "${targetTab}" not found.`);
     }
-  });
-
-  console.log({updates});
-
-  // Apply all updates to the target sheet in one go
-  Object.keys(updates).forEach((cell) => {
-      targetSheet[cell] = updates[cell]; // Apply each update to the target sheet
+  
+    const targetRowData = targetSheet.getRow(targetRow).values as string[]; // Target row for column mapping
+    const sourceData = sourceSheet.getRows(3, sourceSheet.rowCount - 2); // Source data starting from row 3
+  
+    targetRowData.forEach((columnMapping, colIndex) => {
+      if (columnMapping) {
+        console.log('columnMapping', columnMapping);
+        const columns = columnMapping.includes('/') || columnMapping.includes('&')
+          ? columnMapping.replace(/[\/&\s]/g, '').split('')
+          : columnMapping.length > 2
+            ? columnMapping.split('')
+            : columnMapping.match(/.{1}/g);
+  
+        console.log('columns', columns);
+  
+        // @ts-expect-error
+        sourceData.forEach((sourceRow, rowIndex) => {
+          // @ts-expect-error
+          const sourceValues = columns.map((col) => sourceRow.getCell(col).value);
+          let finalValue = sourceValues.length > 1 ? sourceValues.join(' ') : sourceValues[0];
+  
+          // Replace with matching full value if applicable
+          packageTypes.forEach((packageType) => {
+            // @ts-expect-error
+            if (finalValue && packageType.startsWith(finalValue)) {
+              finalValue = packageType;
+            }
+          });
+  
+          console.log('finalValue', finalValue);
+  
+          const targetCell = targetSheet.getCell(startRow + rowIndex, colIndex);
+          targetCell.value = finalValue;
+  
+          // Preserve styles if necessary
+          const sourceCell = sourceSheet.getCell(startRow + rowIndex, colIndex);
+          if (sourceCell.style) {
+            targetCell.style = { ...sourceCell.style };
+          }
+        });
+      }
     });
-
-  // console.log("targetSheet", targetSheet);
-  const currentRef = targetSheet['!ref'];
-  const newRef = 'A1:Y500'; // Dynamically determine based on your needs
-  if (currentRef !== newRef) {
-      targetSheet['!ref'] = newRef;
-  }
 }
 
 app.get("/", (req: Request, res: Response, next: NextFunction): void => {
