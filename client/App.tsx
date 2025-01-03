@@ -10,12 +10,6 @@ const App: React.FC = () => {
     <label for="to">To File:</label>
     <input type="file" name="to" id="to" required />
 
-    <label for="targetTab">Target tab:</label>
-    <select name="targetTab" id="targetTab">
-      <option selected value="Dangerous_Cargo">Dangerous_Cargo</option>
-      <option value="Cargo">Cargo</option>
-    </select>
-    
     <button type="submit">Upload Files</button>
   </form>
   </>;
