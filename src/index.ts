@@ -424,7 +424,7 @@ app.post('/upload', upload.fields([{ name: 'from' }, { name: 'to' }, { name: 'pa
   const partnersSheet = partnersWorkbook.Sheets[partnersWorkbook.SheetNames[0]]; // Assuming the first sheet
 
   putPartnersData("Cargo_partners", workbook2, partnersSheet, res, 6);
-  // putData("Dangerous_Cargo", workbook2, sourceSheet, res, 5, 1);
+  putData("Dangerous_Cargo", workbook2, sourceSheet, res, 5, 1);
   putData("Cargo", workbook2, sourceSheet, res, 5, 1, 4);
 
   // Save the updated target file
@@ -441,109 +441,109 @@ app.post('/upload', upload.fields([{ name: 'from' }, { name: 'to' }, { name: 'pa
   });
 });
 
-const putDataaza = (
-  targetTab: string,
-  workbook2: WorkBook,
-  sourceSheet: WorkSheet,
-  res: Response,
-  startRow: number,
-  targetRow: number,
-  columnNameRow: number = 5 // Row where column names are stored (5th row, index 4)
-) => {
-  const updates: { [key: string]: any } = {}; // Store updates for batch processing
-  const targetSheetIndex = workbook2.SheetNames.indexOf(targetTab);
-  if (targetSheetIndex === -1) {
-    return res.status(400).send('Target tab not found.');
-  }
+// const putDataaza = (
+//   targetTab: string,
+//   workbook2: WorkBook,
+//   sourceSheet: WorkSheet,
+//   res: Response,
+//   startRow: number,
+//   targetRow: number,
+//   columnNameRow: number = 5 // Row where column names are stored (5th row, index 4)
+// ) => {
+//   const updates: { [key: string]: any } = {}; // Store updates for batch processing
+//   const targetSheetIndex = workbook2.SheetNames.indexOf(targetTab);
+//   if (targetSheetIndex === -1) {
+//     return res.status(400).send('Target tab not found.');
+//   }
 
-  const targetSheet = workbook2.Sheets[targetTab];
-  if (!targetSheet) {
-    console.error('Target sheet not found');
-    return;
-  }
+//   const targetSheet = workbook2.Sheets[targetTab];
+//   if (!targetSheet) {
+//     console.error('Target sheet not found');
+//     return;
+//   }
 
-  // Get the column names from the specified row (5th row, index 4)
-  const targetColumnNames = xlsx.utils.sheet_to_json(targetSheet, { header: 1 })[columnNameRow];
-  if (!targetColumnNames) {
-    return res.status(400).send('Column names row not found in target sheet.');
-  }
+//   // Get the column names from the specified row (5th row, index 4)
+//   const targetColumnNames = xlsx.utils.sheet_to_json(targetSheet, { header: 1 })[columnNameRow];
+//   if (!targetColumnNames) {
+//     return res.status(400).send('Column names row not found in target sheet.');
+//   }
 
-  // Get source data starting from row 3 (index 2)
-  const sourceData = xlsx.utils.sheet_to_json(sourceSheet, { header: 1, range: 2 });
+//   // Get source data starting from row 3 (index 2)
+//   const sourceData = xlsx.utils.sheet_to_json(sourceSheet, { header: 1, range: 2 });
 
-  // Load "Cargo_partners" sheet for lookup
-  const cargoPartnersSheet = workbook2.Sheets["Cargo_partners"];
-  if (!cargoPartnersSheet) {
-    return res.status(400).send('Cargo_partners tab not found.');
-  }
+//   // Load "Cargo_partners" sheet for lookup
+//   const cargoPartnersSheet = workbook2.Sheets["Cargo_partners"];
+//   if (!cargoPartnersSheet) {
+//     return res.status(400).send('Cargo_partners tab not found.');
+//   }
 
-  // Convert "Cargo_partners" sheet to JSON
-  const cargoPartnersData: any[][] = xlsx.utils.sheet_to_json(cargoPartnersSheet, { header: 1, defval: "" });
+//   // Convert "Cargo_partners" sheet to JSON
+//   const cargoPartnersData: any[][] = xlsx.utils.sheet_to_json(cargoPartnersSheet, { header: 1, defval: "" });
 
-  // Find "consignee" column in "Cargo_partners" sheet
-  const cargoHeaders = cargoPartnersData[5] || [];
-  console.log({cargoHeaders});
-  const consigneeIndex = cargoHeaders.indexOf("consignee");
+//   // Find "consignee" column in "Cargo_partners" sheet
+//   const cargoHeaders = cargoPartnersData[5] || [];
+//   console.log({cargoHeaders});
+//   const consigneeIndex = cargoHeaders.indexOf("consignee");
 
-  if (consigneeIndex === -1) {
-    return res.status(400).send('Consignee column not found in Cargo_partners tab.');
-  }
+//   if (consigneeIndex === -1) {
+//     return res.status(400).send('Consignee column not found in Cargo_partners tab.');
+//   }
 
-  // Create a lookup map for "Cargo_partners" (consignee -> first column value)
-  const cargoLookup: { [key: string]: string } = {};
-  cargoPartnersData.slice(1).forEach(row => {
-    const consigneeValue = row[consigneeIndex]?.toString().trim();
-    if (consigneeValue) {
-      cargoLookup[consigneeValue] = row[0]; // Store first column value
-    }
-  });
+//   // Create a lookup map for "Cargo_partners" (consignee -> first column value)
+//   const cargoLookup: { [key: string]: string } = {};
+//   cargoPartnersData.slice(1).forEach(row => {
+//     const consigneeValue = row[consigneeIndex]?.toString().trim();
+//     if (consigneeValue) {
+//       cargoLookup[consigneeValue] = row[0]; // Store first column value
+//     }
+//   });
 
-  // Process each column in the target table
-  // @ts-expect-error
-  targetColumnNames.forEach((columnName, colIndex) => {
-    if (!columnName) return;
+//   // Process each column in the target table
+//   // @ts-expect-error
+//   targetColumnNames.forEach((columnName, colIndex) => {
+//     if (!columnName) return;
 
-    const isSpecialColumn = columnName === "Consignee" || columnName === "Consignor";
+//     const isSpecialColumn = columnName === "Consignee" || columnName === "Consignor";
 
-    // Iterate over each row in the source data
-    sourceData.forEach((sourceRow, rowIndex) => {
-      // @ts-expect-error
-      const sourceValue = sourceRow[colIndex];
+//     // Iterate over each row in the source data
+//     sourceData.forEach((sourceRow, rowIndex) => {
+//       // @ts-expect-error
+//       const sourceValue = sourceRow[colIndex];
 
-      let finalValue = sourceValue;
+//       let finalValue = sourceValue;
 
-      // If column is "Consignee" or "Consignor", perform lookup
-      if (isSpecialColumn && sourceValue) {
-        const lookupValue = cargoLookup[sourceValue];
-        if (lookupValue) {
-          finalValue = lookupValue; // Replace with mapped value
-        }
-      }
+//       // If column is "Consignee" or "Consignor", perform lookup
+//       if (isSpecialColumn && sourceValue) {
+//         const lookupValue = cargoLookup[sourceValue];
+//         if (lookupValue) {
+//           finalValue = lookupValue; // Replace with mapped value
+//         }
+//       }
 
-      // Define the target cell address
-      const targetCellAddress = xlsx.utils.encode_cell({
-        r: startRow + rowIndex,
-        c: colIndex,
-      });
+//       // Define the target cell address
+//       const targetCellAddress = xlsx.utils.encode_cell({
+//         r: startRow + rowIndex,
+//         c: colIndex,
+//       });
 
-      // Preserve existing styles and update value
-      const existingCell = targetSheet[targetCellAddress] || {};
-      updates[targetCellAddress] = {
-        ...existingCell,
-        v: finalValue,
-      };
-    });
-  });
+//       // Preserve existing styles and update value
+//       const existingCell = targetSheet[targetCellAddress] || {};
+//       updates[targetCellAddress] = {
+//         ...existingCell,
+//         v: finalValue,
+//       };
+//     });
+//   });
 
-  // Apply all updates to the target sheet
-  Object.keys(updates).forEach(cell => {
-    targetSheet[cell] = updates[cell];
-  });
+//   // Apply all updates to the target sheet
+//   Object.keys(updates).forEach(cell => {
+//     targetSheet[cell] = updates[cell];
+//   });
 
-  // Adjust sheet range
-  const newRef = 'A1:Y500'; // Adjust dynamically if needed
-  targetSheet['!ref'] = newRef;
-};
+//   // Adjust sheet range
+//   const newRef = 'A1:Y500'; // Adjust dynamically if needed
+//   targetSheet['!ref'] = newRef;
+// };
 
 const putData = (targetTab: string, workbook2: WorkBook, sourceSheet: WorkSheet, res: Response, startRow: number, targetRow: number, columnNameRow: number = 0) => {
   // Create an array to store all updates for the target sheet
@@ -656,6 +656,8 @@ const putData = (targetTab: string, workbook2: WorkBook, sourceSheet: WorkSheet,
               console.log({lookupValue});
               if (lookupValue) {
                 finalValue = lookupValue; // Replace with mapped value
+              } else {
+                return res.status(400).send(`partner not found in cargo partners by "${finalValue}" consignee`);
               }
             }
   
