@@ -407,11 +407,11 @@ const packageTypes = [
 
 // Endpoint to upload two xlsx files
   // @ts-ignore
-app.post('/upload', upload.fields([{ name: 'from' }, { name: 'to' }]), (req, res) => {
-  const { from, to } = req.files as { from: Express.Multer.File[], to: Express.Multer.File[] };
+app.post('/upload', upload.fields([{ name: 'from' }, { name: 'to' }, { name: 'partners' }]), (req, res) => {
+  const { from, to, partners } = req.files as { from: Express.Multer.File[], to: Express.Multer.File[], partners: Express.Multer.File[] };
 
-  if (!from || !to) {
-    return res.status(400).send('Both files are required.');
+  if (!from || !to || !partners) {
+    return res.status(400).send('All files are required.');
   }
 
   // Read the first file
@@ -420,10 +420,12 @@ app.post('/upload', upload.fields([{ name: 'from' }, { name: 'to' }]), (req, res
 
   // Read the second file
   const workbook2 = xlsx.readFile(to[0].path);
+  const partnersWorkbook = xlsx.readFile(partners[0].path);
+  const partnersSheet = partnersWorkbook.Sheets[partnersWorkbook.SheetNames[0]]; // Assuming the first sheet
 
-  putData("Dangerous_Cargo", workbook2, sourceSheet, res, 5, 1);
-  putData("Cargo", workbook2, sourceSheet, res, 5, 1);
-  putData("Cargo_partners", workbook2, sourceSheet, res, 6, 2);
+  putPartnersData("Cargo_partners", workbook2, partnersSheet, res, 6);
+  // putData("Dangerous_Cargo", workbook2, sourceSheet, res, 5, 1);
+  putData("Cargo", workbook2, sourceSheet, res, 5, 1, 4);
 
   // Save the updated target file
   const outputFile = path.join('uploads', 'updated_' + to[0].filename);
@@ -439,7 +441,111 @@ app.post('/upload', upload.fields([{ name: 'from' }, { name: 'to' }]), (req, res
   });
 });
 
-const putData = (targetTab: string, workbook2: WorkBook, sourceSheet: WorkSheet, res: Response, startRow: number, targetRow: number) => {
+const putDataaza = (
+  targetTab: string,
+  workbook2: WorkBook,
+  sourceSheet: WorkSheet,
+  res: Response,
+  startRow: number,
+  targetRow: number,
+  columnNameRow: number = 5 // Row where column names are stored (5th row, index 4)
+) => {
+  const updates: { [key: string]: any } = {}; // Store updates for batch processing
+  const targetSheetIndex = workbook2.SheetNames.indexOf(targetTab);
+  if (targetSheetIndex === -1) {
+    return res.status(400).send('Target tab not found.');
+  }
+
+  const targetSheet = workbook2.Sheets[targetTab];
+  if (!targetSheet) {
+    console.error('Target sheet not found');
+    return;
+  }
+
+  // Get the column names from the specified row (5th row, index 4)
+  const targetColumnNames = xlsx.utils.sheet_to_json(targetSheet, { header: 1 })[columnNameRow];
+  if (!targetColumnNames) {
+    return res.status(400).send('Column names row not found in target sheet.');
+  }
+
+  // Get source data starting from row 3 (index 2)
+  const sourceData = xlsx.utils.sheet_to_json(sourceSheet, { header: 1, range: 2 });
+
+  // Load "Cargo_partners" sheet for lookup
+  const cargoPartnersSheet = workbook2.Sheets["Cargo_partners"];
+  if (!cargoPartnersSheet) {
+    return res.status(400).send('Cargo_partners tab not found.');
+  }
+
+  // Convert "Cargo_partners" sheet to JSON
+  const cargoPartnersData: any[][] = xlsx.utils.sheet_to_json(cargoPartnersSheet, { header: 1, defval: "" });
+
+  // Find "consignee" column in "Cargo_partners" sheet
+  const cargoHeaders = cargoPartnersData[5] || [];
+  console.log({cargoHeaders});
+  const consigneeIndex = cargoHeaders.indexOf("consignee");
+
+  if (consigneeIndex === -1) {
+    return res.status(400).send('Consignee column not found in Cargo_partners tab.');
+  }
+
+  // Create a lookup map for "Cargo_partners" (consignee -> first column value)
+  const cargoLookup: { [key: string]: string } = {};
+  cargoPartnersData.slice(1).forEach(row => {
+    const consigneeValue = row[consigneeIndex]?.toString().trim();
+    if (consigneeValue) {
+      cargoLookup[consigneeValue] = row[0]; // Store first column value
+    }
+  });
+
+  // Process each column in the target table
+  // @ts-expect-error
+  targetColumnNames.forEach((columnName, colIndex) => {
+    if (!columnName) return;
+
+    const isSpecialColumn = columnName === "Consignee" || columnName === "Consignor";
+
+    // Iterate over each row in the source data
+    sourceData.forEach((sourceRow, rowIndex) => {
+      // @ts-expect-error
+      const sourceValue = sourceRow[colIndex];
+
+      let finalValue = sourceValue;
+
+      // If column is "Consignee" or "Consignor", perform lookup
+      if (isSpecialColumn && sourceValue) {
+        const lookupValue = cargoLookup[sourceValue];
+        if (lookupValue) {
+          finalValue = lookupValue; // Replace with mapped value
+        }
+      }
+
+      // Define the target cell address
+      const targetCellAddress = xlsx.utils.encode_cell({
+        r: startRow + rowIndex,
+        c: colIndex,
+      });
+
+      // Preserve existing styles and update value
+      const existingCell = targetSheet[targetCellAddress] || {};
+      updates[targetCellAddress] = {
+        ...existingCell,
+        v: finalValue,
+      };
+    });
+  });
+
+  // Apply all updates to the target sheet
+  Object.keys(updates).forEach(cell => {
+    targetSheet[cell] = updates[cell];
+  });
+
+  // Adjust sheet range
+  const newRef = 'A1:Y500'; // Adjust dynamically if needed
+  targetSheet['!ref'] = newRef;
+};
+
+const putData = (targetTab: string, workbook2: WorkBook, sourceSheet: WorkSheet, res: Response, startRow: number, targetRow: number, columnNameRow: number = 0) => {
   // Create an array to store all updates for the target sheet
   const updates: { [key: string]: any } = {}; // Key: cell address, Value: cell value
   const targetSheetIndex = workbook2.SheetNames.indexOf(targetTab);
@@ -453,11 +559,51 @@ const putData = (targetTab: string, workbook2: WorkBook, sourceSheet: WorkSheet,
     return;
   }
 
+  // Get the column names from the specified row (5th row, index 4)
+  const targetColumnNames = xlsx.utils.sheet_to_json(targetSheet, { header: 1 })[columnNameRow];
+  if (!targetColumnNames) {
+    return res.status(400).send('Column names row not found in target sheet.');
+  }
+
+  console.log({targetColumnNames});
+
   // Get the 2nd row from the target sheet (column mapping)
   const targetRow2 = xlsx.utils.sheet_to_json(targetSheet, { header: 1 })[targetRow]; // Row 2 (index 1)
   
   // Get the data from the source sheet starting from row 3 (index 2)
   const sourceData = xlsx.utils.sheet_to_json(sourceSheet, { header: 1, range: 2 }); // Skip the first 2 rows
+
+  
+  // Load "Cargo_partners" sheet for lookup
+  const cargoPartnersSheet = workbook2.Sheets["Cargo_partners"];
+  if (!cargoPartnersSheet) {
+    return res.status(400).send('Cargo_partners tab not found.');
+  }
+
+  // Convert "Cargo_partners" sheet to JSON
+  const cargoPartnersData: any[][] = xlsx.utils.sheet_to_json(cargoPartnersSheet, { header: 1, defval: "" });
+
+  // Find "consignee" column in "Cargo_partners" sheet
+  const cargoHeaders = cargoPartnersData[5] || [];
+  console.log({cargoHeaders});
+  const consigneeIndex = cargoHeaders.indexOf("consignee");
+
+  if (consigneeIndex === -1) {
+    return res.status(400).send('Consignee column not found in Cargo_partners tab.');
+  }
+
+  // Create a lookup map for "Cargo_partners" (consignee -> first column value)
+  const cargoLookup: { [key: string]: string } = {};
+  cargoPartnersData.slice(1).forEach(row => {
+    const consigneeValue = row[consigneeIndex]?.toString().trim();
+    if (consigneeValue) {
+      cargoLookup[consigneeValue] = row[0]; // Store first column value
+    }
+  });
+
+
+  console.log({cargoLookup});
+
 
   // Loop through each column in the target sheet's second row (targetRow2) to map the columns
   // @ts-expect-error
@@ -465,7 +611,7 @@ const putData = (targetTab: string, workbook2: WorkBook, sourceSheet: WorkSheet,
 // Loop through each column in the target sheet's second row (targetRow2) to map the columns
   targetRow2.forEach((columnMapping, colIndex) => {
     if (columnMapping) {
-      console.log("columnMapping",columnMapping);
+      // console.log("columnMapping",columnMapping);
       const includesAmpersant = columnMapping.includes('&');
       const columns = columnMapping.includes('/') || columnMapping.includes('&') 
       ? columnMapping.replace(/[\/&\s]/g, '').split('') 
@@ -473,7 +619,10 @@ const putData = (targetTab: string, workbook2: WorkBook, sourceSheet: WorkSheet,
         ? columnMapping.split('') 
         : columnMapping.match(/.{1}/g); // Handle cases like "A/B", "AO & AQ", "AO&AQ", and "AB"
 
-    console.log("columns", columns);
+
+    // @ts-expect-error
+    const columnName = targetColumnNames[colIndex];
+    const isSpecialColumn = columnName === "Consignee" || columnName === "Consignor";
   
       // Iterate over each row in the source data
       sourceData.forEach((sourceRow, rowIndex) => {
@@ -485,7 +634,7 @@ const putData = (targetTab: string, workbook2: WorkBook, sourceSheet: WorkSheet,
           return sourceRow[sourceColIndex]; // Extract value for the current row
         });
 
-        console.log("sourceValues",sourceValues);
+        // console.log("sourceValues",sourceValues);
 
         // if (sourceValues && sourceValues.length > 0) {
           // @ts-ignore
@@ -501,7 +650,14 @@ const putData = (targetTab: string, workbook2: WorkBook, sourceSheet: WorkSheet,
                   finalValue = packageType; // Replace with the matching full value
               }
             });
-            console.log("finalValue", finalValue);
+
+            if (isSpecialColumn && finalValue) {
+              const lookupValue = cargoLookup[finalValue];
+              console.log({lookupValue});
+              if (lookupValue) {
+                finalValue = lookupValue; // Replace with mapped value
+              }
+            }
   
             const targetCellAddress = xlsx.utils.encode_cell({
               r: startRow + rowIndex,
@@ -522,12 +678,10 @@ const putData = (targetTab: string, workbook2: WorkBook, sourceSheet: WorkSheet,
     }
   });
 
-  console.log({updates});
-
   // Apply all updates to the target sheet in one go
   Object.keys(updates).forEach((cell) => {
       targetSheet[cell] = updates[cell]; // Apply each update to the target sheet
-    });
+  });
 
   // console.log("targetSheet", targetSheet);
   const currentRef = targetSheet['!ref'];
@@ -537,9 +691,97 @@ const putData = (targetTab: string, workbook2: WorkBook, sourceSheet: WorkSheet,
   }
 }
 
+const putPartnersData = (
+  targetTab: string,
+  workbook2: WorkBook,
+  sourceSheet: WorkSheet,
+  res: Response,
+  startRow: number = 7 // Data should start after row 6 (index 6 in zero-based index)
+) => {
+  const targetSheetIndex = workbook2.SheetNames.indexOf(targetTab);
+  if (targetSheetIndex === -1) {
+    return res.status(400).send('Target tab not found.');
+  }
+
+  const targetSheet = workbook2.Sheets[targetTab];
+  if (!targetSheet) {
+    console.error('Target sheet not found');
+    return res.status(400).send('Target sheet not found.');
+  }
+
+  // Convert sheets to JSON (array of arrays)
+  const sourceData: any[][] = xlsx.utils.sheet_to_json(sourceSheet, { header: 1, defval: "" });
+  const targetData: any[][] = xlsx.utils.sheet_to_json(targetSheet, { header: 1, defval: "" });
+
+  if (sourceData.length === 0) {
+    return res.status(400).send('Source sheet is empty.');
+  }
+
+  // Extract headers from source
+  const sourceHeaders = sourceData[0]; // First row of source sheet
+  const targetHeaders = targetData.length >= 6 ? targetData[5] : [];
+
+  // Ensure the last column is named "consignee" if source has more columns than target
+  if (sourceHeaders.length > targetHeaders.length) {
+    targetHeaders.push("consignee"); // Add missing column name
+  }
+
+  // Ensure targetData has at least 6 rows for headers
+  while (targetData.length < 6) {
+    targetData.push([]); // Fill missing rows with empty arrays
+  }
+
+  // Place headers on row 6 (index 5)
+  targetData[5] = targetHeaders;
+
+  // Ensure targetData has enough rows to accommodate new data
+  while (targetData.length < startRow) {
+    targetData.push([]); // Fill missing rows with empty arrays
+  }
+
+  // Insert sourceData (excluding headers) into targetData starting at startRow (7th row)
+  for (let i = 1; i < sourceData.length; i++) {
+    targetData[startRow + i - 1] = sourceData[i]; // Overwrite or add rows
+  }
+
+  // Convert back to worksheet
+  const updatedSheet: WorkSheet = xlsx.utils.aoa_to_sheet(targetData);
+  workbook2.Sheets[targetTab] = updatedSheet;
+};
+
+// const putPartnersData = (targetTab: string, workbook2: WorkBook, sourceSheet: WorkSheet, res: Response, startRow: number, targetRow: number) => {
+//   const targetSheetIndex = workbook2.SheetNames.indexOf(targetTab);
+//   if (targetSheetIndex === -1) {
+//     return res.status(400).send('Target tab not found.');
+//   }
+
+//   const targetSheet = workbook2.Sheets[targetTab];
+//   if (!targetSheet) {
+//     console.error('Target sheet not found');
+//     return res.status(400).send('Target sheet not found.');
+//   }
+
+//   // Convert sheets to JSON (array of arrays)
+//   const sourceData: any[][] = xlsx.utils.sheet_to_json(sourceSheet, { header: 1, defval: "" }).slice(1);
+//   const targetData: any[][] = xlsx.utils.sheet_to_json(targetSheet, { header: 1, defval: "" });
+
+//   // Ensure targetData has enough rows to accommodate new data
+//   while (targetData.length < startRow) {
+//     targetData.push([]); // Fill missing rows with empty arrays
+//   }
+
+//   // Insert sourceData into targetData starting at startRow
+//   for (let i = 0; i < sourceData.length; i++) {
+//     targetData[startRow + i] = sourceData[i]; // Overwrite or add rows
+//   }
+
+//   // Convert back to worksheet
+//   const updatedSheet: WorkSheet = xlsx.utils.aoa_to_sheet(targetData);
+//   workbook2.Sheets[targetTab] = updatedSheet;
+// }
+
 app.get("/", (req: Request, res: Response, next: NextFunction): void => {
   try {
-    console.log("index");
     res.send("index.html");
   } catch (error) {
     next(error);
