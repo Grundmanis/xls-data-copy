@@ -3,7 +3,7 @@ import React from "react";
 
 const App: React.FC = () => {
   return <>
-  <form action="/upload" method="POST" encType="multipart/form-data">
+  <form action="/4fG7hJkLmN8pQrStUvWx/upload" method="POST" encType="multipart/form-data">
     <label>From File:</label>
     <input type="file" name="from" id="from" required />
     

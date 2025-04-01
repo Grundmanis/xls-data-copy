@@ -6,7 +6,9 @@ import xlsx, { WorkBook, WorkSheet } from 'xlsx';
 
 const app = express();
 
-app.use(express.static(path.join(__dirname, "../public")));
+const url = "4fG7hJkLmN8pQrStUvWx";
+
+app.use( express.static(path.join(__dirname, "../public")));
 
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
@@ -406,7 +408,7 @@ const packageTypes = [
 
 // Endpoint to upload two xlsx files
   // @ts-ignore
-app.post('/upload', upload.fields([{ name: 'from' }, { name: 'to' }, { name: 'partners' }]), (req, res) => {
+app.post(`/${url}/upload`, upload.fields([{ name: 'from' }, { name: 'to' }, { name: 'partners' }]), (req, res) => {
   const { from, to, partners } = req.files as { from: Express.Multer.File[], to: Express.Multer.File[], partners: Express.Multer.File[] };
 
   if (!from || !to || !partners) {
@@ -663,7 +665,7 @@ const putPartnersData = (
   workbook2.Sheets[targetTab] = updatedSheet;
 };
 
-app.get("/", (req: Request, res: Response, next: NextFunction): void => {
+app.get(`/${url}`, (req: Request, res: Response, next: NextFunction): void => {
   try {
     res.send("index.html");
   } catch (error) {
