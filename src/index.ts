@@ -424,23 +424,40 @@ app.post(`/${url}/upload`, upload.fields([{ name: 'from' }, { name: 'to' }, { na
   const partnersWorkbook = xlsx.readFile(partners[0].path);
   const partnersSheet = partnersWorkbook.Sheets[partnersWorkbook.SheetNames[0]]; // Assuming the first sheet
 
-  putPartnersData("Cargo_partners", workbook2, partnersSheet, res, 6);
+  try {
+    putPartnersData("Cargo_partners", workbook2, partnersSheet, res, 6);
+  } catch (error) {
+    // @ts-expect-error
+    return res.status(400).send(`Error in Cargo_partners: ${error.message}`);
+  }
   
-  // @ts-ignore
-  putData("Dangerous_Cargo", workbook2, sourceSheet, res, 5, 1, 0, (data) => {
-      if (!data || !data.sourceRow) {
-        return res.status(400).send('Invalid request data.');
-      }
-      const { sourceRow } = data;
-      const acValue = sourceRow[28];
-      const adValue = sourceRow[29];
+  try {
+      // @ts-ignore
+      putData("Dangerous_Cargo", workbook2, sourceSheet, res, 5, 1, 0, (data) => {
+        if (!data || !data.sourceRow) {
+          throw new Error('Invalid data format.');
+        }
+        const { sourceRow } = data;
+        const acValue = sourceRow[28];
+        const adValue = sourceRow[29];
 
-      if (acValue && adValue) {
-        return true;
-      }
+        if (acValue && adValue) {
+          return true;
+        }
 
-  });
-  putData("Cargo", workbook2, sourceSheet, res, 5, 1, 4);
+    });
+  }
+  catch (error) {
+    // @ts-expect-error
+    return res.status(400).send(`Error in Dangerous Cargo: ${error.message}`);
+  }
+  
+  try {
+    putData("Cargo", workbook2, sourceSheet, res, 5, 1, 4);
+  } catch (error) {
+    // @ts-expect-error
+    return res.status(400).send(`Error in Cargo: ${error.message}`);
+  }
 
   // Save the updated target file
   const outputFile = path.join('uploads', 'updated_' + to[0].filename);
@@ -461,19 +478,18 @@ const putData = (targetTab: string, workbook2: WorkBook, sourceSheet: WorkSheet,
   const updates: { [key: string]: any } = {}; // Key: cell address, Value: cell value
   const targetSheetIndex = workbook2.SheetNames.indexOf(targetTab);
   if (targetSheetIndex === -1) {
-    return res.status(400).send('Target tab not found.');
+    throw new Error('Target tab not found.');
   }
 
   const targetSheet = workbook2.Sheets[workbook2.SheetNames[targetSheetIndex]]; // Assuming the first sheet
   if (!targetSheet) {
-    console.error('Target sheet not found');
-    return;
+    throw new Error('Target sheet not found.');
   }
 
   // Get the column names from the specified row (5th row, index 4)
   const targetColumnNames = xlsx.utils.sheet_to_json(targetSheet, { header: 1 })[columnNameRow];
   if (!targetColumnNames) {
-    return res.status(400).send('Column names row not found in target sheet.');
+    throw new Error('Column names row not found in target sheet.');
   }
 
   // Get the 2nd row from the target sheet (column mapping)
@@ -486,7 +502,7 @@ const putData = (targetTab: string, workbook2: WorkBook, sourceSheet: WorkSheet,
   // Load "Cargo_partners" sheet for lookup
   const cargoPartnersSheet = workbook2.Sheets["Cargo_partners"];
   if (!cargoPartnersSheet) {
-    return res.status(400).send('Cargo_partners tab not found.');
+    throw new Error('Cargo_partners tab not found.');
   }
 
   // Convert "Cargo_partners" sheet to JSON
@@ -497,7 +513,7 @@ const putData = (targetTab: string, workbook2: WorkBook, sourceSheet: WorkSheet,
   const consigneeIndex = cargoHeaders.indexOf("consignee");
 
   if (consigneeIndex === -1) {
-    return res.status(400).send('Consignee column not found in Cargo_partners tab.');
+    throw new Error('Consignee column not found in Cargo_partners tab.');
   }
 
   // Create a lookup map for "Cargo_partners" (consignee -> first column value)
@@ -591,7 +607,7 @@ const putData = (targetTab: string, workbook2: WorkBook, sourceSheet: WorkSheet,
     const uniqueListOfNotFoundPartners = listOfNotFoundPartners.filter((partner, index, self) => 
       self.indexOf(partner) === index
     );
-    return res.status(400).send(`Partner(s) not found in cargo partners consignee values: ${uniqueListOfNotFoundPartners.join('   ----   ')}`);
+    throw new Error(`Partner(s) not found in cargo partners consignee values: ${uniqueListOfNotFoundPartners.join('   ----   ')}`);
   }
 
   // Apply all updates to the target sheet in one go
@@ -616,13 +632,12 @@ const putPartnersData = (
 ) => {
   const targetSheetIndex = workbook2.SheetNames.indexOf(targetTab);
   if (targetSheetIndex === -1) {
-    return res.status(400).send('Target tab not found.');
+    throw new Error('Target tab not found.');
   }
 
   const targetSheet = workbook2.Sheets[targetTab];
   if (!targetSheet) {
-    console.error('Target sheet not found');
-    return res.status(400).send('Target sheet not found.');
+    throw new Error('Target sheet not found.');
   }
 
   // Convert sheets to JSON (array of arrays)
@@ -630,7 +645,7 @@ const putPartnersData = (
   const targetData: any[][] = xlsx.utils.sheet_to_json(targetSheet, { header: 1, defval: "" });
 
   if (sourceData.length === 0) {
-    return res.status(400).send('Source sheet is empty.');
+    throw new Error('Source sheet is empty.');
   }
 
   // Extract headers from source
