@@ -680,15 +680,14 @@ const putPartnersData = (
   workbook2.Sheets[targetTab] = updatedSheet;
 };
 
-app.get(`/${url}`, (req: Request, res: Response, next: NextFunction): void => {
-  try {
-    res.send("index.html");
-  } catch (error) {
-    next(error);
-  }
+// Serve static files from the React app
+app.use(express.static(path.join(process.cwd(), 'public')));
+
+app.get(`/${url}`, (req, res) => {
+  res.sendFile(path.join(process.cwd(), 'public', 'index.html'));
 });
 
-const PORT = 3000;
+const PORT = 80;
 
 app.listen(PORT, () => {
   console.log(`App listening on port ${PORT}`);
